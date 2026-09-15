@@ -20,64 +20,62 @@ const expToLevel = (exp, deltaNextLevel = deltaNext) => Math.floor((1 + Math.sqr
 const levelToExp = (level, deltaNextLevel = deltaNext) => Math.floor((((Math.pow(level, 2) - level) * deltaNextLevel) / 2));
 
 // ============================================================================
-// MODULE EXPORTS & CONFIG
+// MODULE CONFIG & EXPORTS
 // ============================================================================
-module.exports = {
-	config: {
-		name: "rank",
-		version: "1.7",
-		author: "NTKhang",
-		countDown: 5,
-		role: 0,
-		description: {
-			vi: "Xem level của bạn hoặc người được tag. Có thể tag nhiều người",
-			en: "View your level or the level of the tagged person. You can tag many people",
-			tl: "Tingnan ang level mo o ng na-tag na tao. Pwede mag-tag ng marami"
-		},
-		category: "rank",
-		guide: {
-			vi: "   {pn} [để trống | @tags]",
-			en: "   {pn} [empty | @tags]",
-			tl: "   {pn} [iwanang blangko | @tags]"
-		},
-		envConfig: {
-			deltaNext: 5
-		}
-	},
+module.exports.config = {
+	name: "rank",
+	version: "1.7",
+	hasPermission: 0,
+	credits: "NTKhang",
+	description: "Tingnan ang level mo o ng na-tag na tao. Pwede mag-tag ng marami",
+	usePrefix: true,
+	commandCategory: "rank",
+	usages: "[@tags | iwanang blangko]",
+	cooldowns: 5,
+	envConfig: {
+		deltaNext: 5
+	}
+};
 
-	onStart: async function ({ message, event, usersData, threadsData, commandName, envCommands, api }) {
-		deltaNext = envCommands[commandName]?.deltaNext || 5;
-		const mentions = Object.keys(event.mentions || {});
-		const targetUsers = mentions.length === 0 ? [event.senderID] : mentions;
+module.exports.run = async function ({ api, event, message, usersData, threadsData, commandName, envCommands }) {
+	deltaNext = envCommands?.[commandName]?.deltaNext || 5;
+	const mentions = Object.keys(event.mentions || {});
+	const targetUsers = mentions.length === 0 ? [event.senderID] : mentions;
 
-		try {
-			const rankCards = await Promise.all(
-				targetUsers.map(async (userID) => {
-					const rankCardStream = await makeRankCard(userID, usersData, threadsData, event.threadID, deltaNext, api);
-					const fileName = `${global.utils?.randomString(10) || Date.now()}.png`;
-					rankCardStream.path = fileName;
-					return rankCardStream;
-				})
-			);
+	try {
+		const rankCards = await Promise.all(
+			targetUsers.map(async (userID) => {
+				const rankCardStream = await makeRankCard(userID, usersData, threadsData, event.threadID, deltaNext, api);
+				const fileName = `${global.utils?.randomString ? global.utils.randomString(10) : Date.now()}.png`;
+				rankCardStream.path = fileName;
+				return rankCardStream;
+			})
+		);
 
+		if (message && typeof message.reply === "function") {
 			return message.reply({ attachment: rankCards });
-		} catch (error) {
-			console.error("[RANK COMMAND ERROR]:", error);
-			return message.reply("❌ Nagkaroon ng error sa pag-generate ng rank card.");
+		} else {
+			return api.sendMessage({ attachment: rankCards }, event.threadID, event.messageID);
 		}
-	},
+	} catch (error) {
+		console.error("[RANK COMMAND ERROR]:", error);
+		const errorMsg = "❌ Nagkaroon ng error sa pag-generate ng rank card.";
+		return message?.reply ? message.reply(errorMsg) : api.sendMessage(errorMsg, event.threadID, event.messageID);
+	}
+};
 
-	onChat: async function ({ usersData, event }) {
-		if (!event.senderID) return;
-		try {
-			const userData = await usersData.get(event.senderID);
-			let exp = Number(userData?.exp);
-			if (isNaN(exp) || typeof exp !== "number") exp = 0;
+module.exports.onStart = module.exports.run;
 
-			await usersData.set(event.senderID, { exp: exp + 1 });
-		} catch (e) {
-			// Silent catch for quick background exp updates
-		}
+module.exports.onChat = async function ({ usersData, event }) {
+	if (!event.senderID) return;
+	try {
+		const userData = await usersData.get(event.senderID);
+		let exp = Number(userData?.exp);
+		if (isNaN(exp) || typeof exp !== "number") exp = 0;
+
+		await usersData.set(event.senderID, { exp: exp + 1 });
+	} catch (e) {
+		// Silent catch for background EXP gain
 	}
 };
 
@@ -105,13 +103,13 @@ async function makeRankCard(userID, usersData, threadsData, threadID, deltaNext,
 
 	const allUser = await usersData.getAll();
 	allUser.sort((a, b) => (b.exp || 0) - (a.exp || 0));
-	
+
 	const rankIndex = allUser.findIndex((user) => user.userID == userID);
 	const rank = rankIndex !== -1 ? rankIndex + 1 : allUser.length;
 	const userName = allUser[rankIndex]?.name || userData?.name || "User";
 
 	const customRankCard = (await threadsData.get(threadID, "data.customRankCard")) || {};
-	
+
 	const dataLevel = {
 		exp: currentExp,
 		expNextLevel,
@@ -134,12 +132,11 @@ async function makeRankCard(userID, usersData, threadsData, threadID, deltaNext,
 	return await image.buildCard();
 }
 
-// Make helper available globally if needed by other modules
 global.client = global.client || {};
 global.client.makeRankCard = makeRankCard;
 
 // ============================================================================
-// RANKCARD CANVAS CLASS
+// CANVAS RANKCARD CLASS
 // ============================================================================
 class RankCard {
 	constructor(options = {}) {
@@ -316,7 +313,6 @@ class RankCard {
 		const canvas = Canvas.createCanvas(widthCard, heightCard);
 		const ctx = canvas.getContext("2d");
 
-		// Draw Subcard
 		const alignRim = 3 * percentage(widthCard);
 		ctx.globalAlpha = parseFloat(alpha_subcard || 0);
 		await checkColorOrImageAndDraw(alignRim, alignRim, widthCard - alignRim * 2, heightCard - alignRim * 2, ctx, sub_color, 20);
@@ -391,7 +387,6 @@ class RankCard {
 		ctx.fillRect(0, 0, widthCard, alignRim);
 		ctx.fillRect(0, heightCard - alignRim, widthCard, alignRim);
 
-		// Exp Bar Dimensions
 		const radius = 6 * percentage(heightCard);
 		const xStartExp = (25 + 1.5) * percentage(widthCard);
 		const yStartExp = 67 * percentage(heightCard);
@@ -404,11 +399,10 @@ class RankCard {
 				const loadedAvatar = await Canvas.loadImage(avatar);
 				centerImage(ctx, loadedAvatar, xyAvatar, xyAvatar, resizeAvatar, resizeAvatar);
 			} catch (e) {
-				console.error("[RANK CARD] Failed to load avatar:", e.message);
+				console.error("[RANK CARD] Error loading avatar image:", e.message);
 			}
 		}
 
-		// Draw Exp Background
 		if (!isUrl(expNextLevel_color)) {
 			ctx.beginPath();
 			ctx.fillStyle = checkGradientColor(ctx, expNextLevel_color, xStartExp, yStartExp, xStartExp + widthExp, yStartExp);
@@ -435,7 +429,6 @@ class RankCard {
 			ctx.restore();
 		}
 
-		// Draw Current Exp Progress
 		const widthExpCurrent = Math.min((100 / (expNextLevel || 1)) * exp, 100) * percentage(widthExp);
 		if (!isUrl(exp_color)) {
 			ctx.fillStyle = checkGradientColor(ctx, exp_color, xStartExp, yStartExp, xStartExp + widthExp, yStartExp);
@@ -465,7 +458,6 @@ class RankCard {
 			ctx.restore();
 		}
 
-		// Typography Sizes
 		const maxSizeFont_Name = 4 * percentage(widthCard) + this.textSize;
 		const maxSizeFont_Exp = 2 * percentage(widthCard) + this.textSize;
 		const maxSizeFont_Level = 3.25 * percentage(widthCard) + this.textSize;
@@ -473,7 +465,6 @@ class RankCard {
 
 		ctx.textAlign = "end";
 
-		// Draw Rank Text
 		ctx.font = autoSizeFont(18.4 * percentage(widthCard), maxSizeFont_Rank, String(rank), ctx, this.fontName);
 		const metricsRank = ctx.measureText(String(rank));
 		ctx.fillStyle = checkGradientColor(
@@ -486,7 +477,6 @@ class RankCard {
 		);
 		ctx.fillText(String(rank), 94 * percentage(widthCard), 76 * percentage(heightCard));
 
-		// Draw Level Text
 		const textLevel = `Lv ${level}`;
 		ctx.font = autoSizeFont(9.8 * percentage(widthCard), maxSizeFont_Level, textLevel, ctx, this.fontName);
 		const metricsLevel = ctx.measureText(textLevel);
@@ -502,7 +492,6 @@ class RankCard {
 		);
 		ctx.fillText(textLevel, xStartLevel, yStartLevel);
 
-		// Draw Name Text
 		ctx.font = autoSizeFont(52.1 * percentage(widthCard), maxSizeFont_Name, name, ctx, this.fontName);
 		ctx.textAlign = "center";
 		const metricsName = ctx.measureText(name);
@@ -516,7 +505,6 @@ class RankCard {
 		);
 		ctx.fillText(name, 47.5 * percentage(widthCard), 40 * percentage(heightCard));
 
-		// Draw Exp Text
 		const textExp = `Exp ${exp}/${expNextLevel}`;
 		ctx.font = autoSizeFont(49 * percentage(widthCard), maxSizeFont_Exp, textExp, ctx, this.fontName);
 		const metricsExp = ctx.measureText(textExp);
@@ -530,7 +518,6 @@ class RankCard {
 		);
 		ctx.fillText(textExp, 47.5 * percentage(widthCard), 61.4 * percentage(heightCard));
 
-		// Draw Background Image / Card Base
 		ctx.globalCompositeOperation = "destination-over";
 		if (typeof main_color === "string" && (main_color.match(/^https?:\/\//) || Buffer.isBuffer(main_color))) {
 			ctx.beginPath();
